@@ -1,6 +1,5 @@
 from psycopg2.extras import RealDictCursor
 
-# SQL statements for table creation
 CREATE_TABLES = """
 CREATE TABLE IF NOT EXISTS artists (
     id VARCHAR(80) PRIMARY KEY,
@@ -47,17 +46,26 @@ CREATE TABLE IF NOT EXISTS playlists_tracks (
     track_id VARCHAR(80) REFERENCES tracks(id),
     PRIMARY KEY (playlist_id, track_id)
 );
+"""
 
-CREATE TABLE IF NOT EXISTS artists_genres (
-    artist_id VARCHAR(80) REFERENCES artists(id),
-    genre VARCHAR(80),
-    PRIMARY KEY (artist_id, genre)
-);
+DROP_TABLES = """
+DROP TABLE artists_tracks;
+DROP TABLE playlists_tracks;
+DROP TABLE playlists;
+DROP TABLE artists;
+DROP TABLE tracks;
 """
 
 
 def create_tables(conn):
     with conn.cursor() as cur:
+        cur.execute(CREATE_TABLES)
+    conn.commit()
+
+
+def reset_database(conn):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(DROP_TABLES)
         cur.execute(CREATE_TABLES)
     conn.commit()
 
@@ -68,10 +76,7 @@ def insert_or_update_artist(conn, artist):
             """
             INSERT INTO artists (id, name, thumbnail, popularity)
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (id) DO UPDATE
-            SET name = EXCLUDED.name,
-                thumbnail = EXCLUDED.thumbnail,
-                popularity = EXCLUDED.popularity
+            ON CONFLICT (id) DO NOTHING
         """,
             (artist["id"], artist["name"], artist["thumbnail"], artist["popularity"]),
         )
@@ -84,22 +89,7 @@ def insert_or_update_track(conn, track):
             """
             INSERT INTO tracks (id, name, thumbnail, preview_url, popularity, danceability, energy, loudness, speechiness, acousticness, instrumentalness, liveness, valence, tempo, mode, duration_ms)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (id) DO UPDATE
-            SET name = EXCLUDED.name,
-                thumbnail = EXCLUDED.thumbnail,
-                preview_url = EXCLUDED.preview_url,
-                popularity = EXCLUDED.popularity,
-                danceability = EXCLUDED.danceability,
-                energy = EXCLUDED.energy,
-                loudness = EXCLUDED.loudness,
-                speechiness = EXCLUDED.speechiness,
-                acousticness = EXCLUDED.acousticness,
-                instrumentalness = EXCLUDED.instrumentalness,
-                liveness = EXCLUDED.liveness,
-                valence = EXCLUDED.valence,
-                tempo = EXCLUDED.tempo,
-                mode = EXCLUDED.mode,
-                duration_ms = EXCLUDED.duration_ms
+            ON CONFLICT (id) DO NOTHING
         """,
             (
                 track["id"],
@@ -168,19 +158,6 @@ def insert_playlist_track(conn, playlist_id, track_id):
             ON CONFLICT DO NOTHING
         """,
             (playlist_id, track_id),
-        )
-    conn.commit()
-
-
-def insert_artist_genre(conn, artist_id, genre):
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO artists_genres (artist_id, genre)
-            VALUES (%s, %s)
-            ON CONFLICT DO NOTHING
-        """,
-            (artist_id, genre),
         )
     conn.commit()
 

@@ -1,11 +1,28 @@
-import React from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { BarChart, Music, Lightbulb, Moon, Sun, Home } from "lucide-react";
 import AnalysisOption from "./AnalysisOption";
-import { BarChart, Music, Lightbulb } from "lucide-react";
 
 const Analysis = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [darkMode, setDarkMode] = useState(() => {
+    const savedMode = localStorage.getItem("darkMode");
+    return savedMode ? JSON.parse(savedMode) : false;
+  });
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    localStorage.setItem("darkMode", JSON.stringify(darkMode));
+  }, [darkMode]);
+
+  const toggleDarkMode = () => {
+    setDarkMode((prevMode) => !prevMode);
+  };
 
   // Placeholder data - replace with actual API calls
   const playlistData = {
@@ -14,16 +31,35 @@ const Analysis = () => {
     trackCount: 50,
     followerCount: 1000,
     imageUrl: "https://picsum.photos/400",
+    topArtist: "The Beatles",
+    topGenre: "Rock",
+    duration: "3h 25m",
+    placeholder: "One More",
   };
 
   return (
-    <div className="min-h-screen bg-emerald-50 flex flex-col items-center p-8">
+    <div className="min-h-screen bg-emerald-50 dark:bg-gray-900 flex flex-col items-center p-8 transition-colors duration-300">
+      <Link
+        to="/"
+        className="absolute top-4 left-4 p-2 rounded-full bg-emerald-200 dark:bg-gray-700 text-emerald-800 dark:text-emerald-200 transition-colors duration-300"
+      >
+        <Home size={24} />
+      </Link>
+      <button
+        onClick={toggleDarkMode}
+        className="absolute top-4 right-4 p-2 rounded-full bg-emerald-200 dark:bg-gray-700 text-emerald-800 dark:text-emerald-200 transition-colors duration-300"
+      >
+        {darkMode ? <Sun size={24} /> : <Moon size={24} />}
+      </button>
       <div className="text-center mb-8">
-        <h1 className="text-5xl font-bold text-emerald-800 mb-2">SpotiSight</h1>
-        <p className="text-xl text-emerald-600">Playlist Analysis</p>
+        <h1 className="text-5xl font-bold text-emerald-800 dark:text-emerald-300 mb-2 transition-colors duration-300">
+          SpotiSight
+        </h1>
+        <p className="text-xl text-emerald-600 dark:text-emerald-400 transition-colors duration-300">
+          Playlist Analysis
+        </p>
       </div>
-
-      <div className="bg-white rounded-lg shadow-lg p-6 max-w-4xl w-full">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-4xl w-full transition-colors duration-300">
         <div className="flex flex-col md:flex-row gap-8">
           <img
             src={playlistData.imageUrl}
@@ -31,29 +67,24 @@ const Analysis = () => {
             className="w-64 h-64 object-cover rounded-lg shadow-md"
           />
           <div className="flex flex-col justify-center">
-            <h2 className="text-3xl font-bold text-emerald-800 mb-2">
+            <h2 className="text-3xl font-bold text-emerald-800 dark:text-emerald-300 mb-2 transition-colors duration-300">
               {playlistData.name}
             </h2>
-            <p className="text-emerald-600 mb-4">{playlistData.description}</p>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-emerald-500">Tracks</p>
-                <p className="text-2xl font-semibold">
-                  {playlistData.trackCount}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-emerald-500">Followers</p>
-                <p className="text-2xl font-semibold">
-                  {playlistData.followerCount}
-                </p>
-              </div>
+            <p className="text-emerald-600 dark:text-emerald-400 mb-4 transition-colors duration-300">
+              {playlistData.description}
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <InfoItem label="Tracks" value={playlistData.trackCount} />
+              <InfoItem label="Followers" value={playlistData.followerCount} />
+              <InfoItem label="Duration" value={playlistData.duration} />
+              <InfoItem label="Top Artist" value={playlistData.topArtist} />
+              <InfoItem label="Top Genre" value={playlistData.topGenre} />
+              <InfoItem label="Placeholder" value={playlistData.placeholder} />
             </div>
           </div>
         </div>
       </div>
-
-      <div className="mt-12 text-emerald-700 text-center w-full max-w-4xl">
+      <div className="mt-12 text-emerald-700 dark:text-emerald-300 text-center w-full max-w-4xl transition-colors duration-300">
         <h2 className="text-2xl font-semibold mb-4">Choose Your Analysis</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <AnalysisOption
@@ -79,5 +110,16 @@ const Analysis = () => {
     </div>
   );
 };
+
+const InfoItem = ({ label, value }) => (
+  <div>
+    <p className="text-sm text-emerald-500 dark:text-emerald-400 transition-colors duration-300">
+      {label}
+    </p>
+    <p className="text-lg font-semibold text-emerald-800 dark:text-emerald-200 transition-colors duration-300">
+      {value}
+    </p>
+  </div>
+);
 
 export default Analysis;

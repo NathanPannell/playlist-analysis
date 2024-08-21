@@ -157,10 +157,7 @@ def update_or_create_artists(conn, all_tracks):
 @app.route("/sync_playlist", methods=["POST"])
 def sync_playlist():
     # try:
-    url = request.json.get("url")
-    print(f"Syncing on url: {url}")
-
-    playlist_id = url.split("/")[-1].split("?")[0]
+    playlist_id = request.json.get("id")
 
     conn = get_db_connection()
     playlist = fetch_playlist_data(playlist_id)
@@ -181,10 +178,9 @@ def sync_playlist():
         201,
     )
 
-
-# except Exception as e:
-#     print(e)
-#     return jsonify({"message": str(e)}), 500
+    # except Exception as e:
+    #     print(e)
+    #     return jsonify({"message": str(e)}), 500
 
 
 @app.route("/playlists", methods=["GET"])
@@ -214,9 +210,22 @@ def get_all_artists():
 @app.route("/reset", methods=["DELETE"])
 def reset_database():
     conn = get_db_connection()
-    models.create_tables(conn)
+    models.reset_database(conn)
     conn.close()
     return jsonify({"message": "Database has been reset."}), 200
+
+
+@app.route("/test", methods=["POST"])
+def test():
+    conn = get_db_connection()
+    id = request.json.get("id")
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM playlists")
+        result = cur.fetchall()
+
+    conn.close()
+    return jsonify(result), 200
 
 
 if __name__ == "__main__":
