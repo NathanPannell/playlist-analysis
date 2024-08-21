@@ -6,13 +6,13 @@ import time
 from os import environ
 
 
-def chunked_list(items, chunk_size=100):
+def chunked_list(items, chunk_size=100) -> iter:
     items = list(items)
     for i in range(0, len(items), chunk_size):
         yield items[i : i + chunk_size]
 
 
-def get_spotify_token_headers():
+def get_spotify_token_headers() -> dict[str, str]:
     now = time.time()
     if "spotify_token" not in session or session["spotify_token_expiry"] < now:
         # Token is missing or expired, get a new one
@@ -36,7 +36,7 @@ def get_spotify_token_headers():
     return {"Authorization": f"Bearer {session['spotify_token']}"}
 
 
-def fetch_playlist_data(playlist_id):
+def fetch_playlist(playlist_id: str) -> dict:
     print(f"Fetching playlist: {playlist_id}")
 
     return requests.get(
@@ -45,7 +45,7 @@ def fetch_playlist_data(playlist_id):
     ).json()
 
 
-def update_or_create_playlist(conn, playlist):
+def update_or_create_playlist(conn, playlist: dict):
     images = playlist.get("images")
     thumbnail = images[0].get("url") if images else None
 
@@ -60,29 +60,38 @@ def update_or_create_playlist(conn, playlist):
     models.insert_or_update_playlist(conn, playlist_data)
 
 
-def fetch_tracks(playlist):
+def fetch_all_playlist_tracks(playlist: dict) -> list[dict]:
     all_tracks = []
-    next_tracks = playlist.get("tracks", {})
-    tracks = [track["track"] for track in playlist.get("tracks", {}).get("items", [])]
+    cur = playlist.get("tracks", {})
+    tracks = [track["track"] for track in cur.get("items", [])]
 
     while tracks:
         all_tracks.extend(tracks)
-        next_tracks_url = next_tracks.get("next")
-        if not next_tracks_url:
+
+        next_url = cur.get("next")
+        if not next_url:
             break
 
         print("Getting another batch of 100 tracks")
-
-        next_tracks = requests.get(
-            next_tracks_url, headers=get_spotify_token_headers()
-        ).json()
-        tracks = [track["track"] for track in next_tracks.get("items", [])]
+        cur = requests.get(next_url, headers=get_spotify_token_headers()).json()
+        tracks = [track["track"] for track in cur.get("items", [])]
 
     return all_tracks
 
 
+def add_playlist_tracks(conn, playlist_id: str, tracks: list[dict]):
+    track_ids = [track["id"] for track in tracks]
+
+    existing_track_ids = models.get_existing_track_ids(conn, track_ids)
+    new_tracks = [track for track in tracks if track["id"] not in existing_track_ids]
+    update_or_create_tracks(conn, new_tracks)
+
+    models.insert_playlist_tracks(conn, playlist_id, track_ids)
+
+
 def update_or_create_tracks(conn, all_tracks):
     all_track_ids = {track["id"] for track in all_tracks}
+    all_track_data = []
 
     for tracks, track_ids in zip(chunked_list(all_tracks), chunked_list(all_track_ids)):
         print(f"Getting a batch of {len(track_ids)} tracks' audio features")
@@ -93,40 +102,50 @@ def update_or_create_tracks(conn, all_tracks):
             headers=get_spotify_token_headers(),
         ).json()["audio_features"]
 
-        print(len(tracks_features))
-
         for track, track_features in zip(tracks, tracks_features):
             track_features = track_features or {}
             images = track.get("album", {}).get("images")
             thumbnail = images[0].get("url") if images else None
-            track_data = {
-                "id": track.get("id"),
-                "name": track.get("name"),
-                "thumbnail": thumbnail,
-                "preview_url": track.get("preview_url"),
-                "popularity": track.get("popularity"),
-                "danceability": track_features.get("danceability"),
-                "energy": track_features.get("energy"),
-                "loudness": track_features.get("loudness"),
-                "speechiness": track_features.get("speechiness"),
-                "acousticness": track_features.get("acousticness"),
-                "instrumentalness": track_features.get("instrumentalness"),
-                "liveness": track_features.get("liveness"),
-                "valence": track_features.get("valence"),
-                "tempo": track_features.get("tempo"),
-                "mode": track_features.get("mode"),
-                "duration_ms": track.get("duration_ms"),
-            }
 
-            models.insert_or_update_track(conn, track_data)
+            all_track_data.append(
+                (
+                    track.get("id"),
+                    track.get("name"),
+                    thumbnail,
+                    track.get("preview_url"),
+                    track.get("popularity"),
+                    track_features.get("danceability"),
+                    track_features.get("energy"),
+                    track_features.get("loudness"),
+                    track_features.get("speechiness"),
+                    track_features.get("acousticness"),
+                    track_features.get("instrumentalness"),
+                    track_features.get("liveness"),
+                    track_features.get("valence"),
+                    track_features.get("tempo"),
+                    track_features.get("mode"),
+                    track.get("duration_ms"),
+                )
+            )
+
+    models.insert_or_update_tracks(conn, all_track_data)
+
+    update_or_create_artists(conn, all_tracks)
 
 
 def update_or_create_artists(conn, all_tracks):
-    all_artists_ids = {
+    all_artist_ids = {
         artist["id"] for track in all_tracks for artist in track["artists"]
     }
+    existing_artist_ids = models.get_existing_artist_ids(conn, list(all_artist_ids))
+    new_artist_ids = [
+        artist_id
+        for artist_id in all_artist_ids
+        if artist_id not in existing_artist_ids
+    ]
 
-    for artists_ids in chunked_list(all_artists_ids, 50):
+    all_artist_data = []
+    for artists_ids in chunked_list(new_artist_ids, 50):
         print(f"Getting a batch of {len(artists_ids)} artists")
 
         artists = requests.get(
@@ -135,76 +154,61 @@ def update_or_create_artists(conn, all_tracks):
             headers=get_spotify_token_headers(),
         ).json()["artists"]
 
-        for artist_id, artist in zip(artists_ids, artists):
+        for artist in artists:
             images = artist.get("images")
             thumbnail = images[0].get("url") if images else None
-            artist_data = {
-                "id": artist.get("id"),
-                "name": artist.get("name"),
-                "thumbnail": thumbnail,
-                "popularity": artist.get("popularity"),
-            }
-            models.insert_or_update_artist(conn, artist_data)
+            all_artist_data.append(
+                (
+                    artist.get("id"),
+                    artist.get("name"),
+                    thumbnail,
+                    artist.get("popularity"),
+                    ",".join(artist.get("genres", [])),
+                )
+            )
 
-            for genre in artist.get("genres", []):
-                models.insert_artist_genre(conn, artist_id, genre)
+    models.insert_or_update_artists(conn, all_artist_data)
 
-            for track in all_tracks:
-                if artist_id in [a["id"] for a in track["artists"]]:
-                    models.insert_artist_track(conn, artist_id, track["id"])
+    all_track_artists = [
+        (track["id"], artist["id"])
+        for track in all_tracks
+        for artist in track["artists"]
+    ]
+    models.insert_track_artists(conn, all_track_artists)
 
 
-@app.route("/sync_playlist", methods=["POST"])
+@app.route("/playlist", methods=["POST"])
 def sync_playlist():
-    # try:
-    playlist_id = request.json.get("id")
-
     conn = get_db_connection()
-    playlist = fetch_playlist_data(playlist_id)
+
+    # Update playlist data
+    playlist_id = request.json.get("id")
+    playlist = fetch_playlist(playlist_id)
     update_or_create_playlist(conn, playlist)
 
-    all_tracks = fetch_tracks(playlist)
-    update_or_create_tracks(conn, all_tracks)
-    update_or_create_artists(conn, all_tracks)
+    # Determine updated playlist track list
+    all_playlist_tracks = fetch_all_playlist_tracks(playlist)
+    all_playlist_track_ids = {track["id"] for track in all_playlist_tracks}
+    existing_playlist_track_ids = set(models.get_playlist_tracks(conn, playlist_id))
 
-    conn.close()
-
-    return (
-        jsonify(
-            {
-                "message": f"Playlist ({playlist.get('name', 'Untitled')}) synced to database"
-            }
-        ),
-        201,
+    # Remove old tracks from playlist
+    old_playlist_track_ids = existing_playlist_track_ids.difference(
+        all_playlist_track_ids
     )
+    models.remove_playlist_tracks(conn, playlist_id, list(old_playlist_track_ids))
 
-    # except Exception as e:
-    #     print(e)
-    #     return jsonify({"message": str(e)}), 500
+    # Add new tracks to playlist
+    # Add entirely new tracks to database
+    new_playlist_track_ids = all_playlist_track_ids.difference(
+        existing_playlist_track_ids
+    )
+    new_playlist_tracks = [
+        track for track in all_playlist_tracks if track["id"] in new_playlist_track_ids
+    ]
+    add_playlist_tracks(conn, playlist_id, new_playlist_tracks)
 
-
-@app.route("/playlists", methods=["GET"])
-def get_all_playlists():
-    conn = get_db_connection()
-    playlists = models.get_all_playlists(conn)
     conn.close()
-    return jsonify(playlists)
-
-
-@app.route("/tracks", methods=["GET"])
-def get_all_tracks():
-    conn = get_db_connection()
-    tracks = models.get_all_tracks(conn)
-    conn.close()
-    return jsonify(tracks)
-
-
-@app.route("/artists", methods=["GET"])
-def get_all_artists():
-    conn = get_db_connection()
-    artists = models.get_all_artists(conn)
-    conn.close()
-    return jsonify(artists)
+    return jsonify(), 200
 
 
 @app.route("/reset", methods=["DELETE"])
@@ -213,19 +217,6 @@ def reset_database():
     models.reset_database(conn)
     conn.close()
     return jsonify({"message": "Database has been reset."}), 200
-
-
-@app.route("/test", methods=["POST"])
-def test():
-    conn = get_db_connection()
-    id = request.json.get("id")
-
-    with conn.cursor() as cur:
-        cur.execute("SELECT * FROM playlists")
-        result = cur.fetchall()
-
-    conn.close()
-    return jsonify(result), 200
 
 
 if __name__ == "__main__":

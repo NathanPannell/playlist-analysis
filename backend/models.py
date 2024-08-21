@@ -1,11 +1,12 @@
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import DictCursor, execute_values
 
 CREATE_TABLES = """
 CREATE TABLE IF NOT EXISTS artists (
     id VARCHAR(80) PRIMARY KEY,
     name VARCHAR(80),
     thumbnail VARCHAR(300),
-    popularity INTEGER
+    popularity INTEGER,
+    genres VARCHAR(300)
 );
 
 CREATE TABLE IF NOT EXISTS tracks (
@@ -35,13 +36,13 @@ CREATE TABLE IF NOT EXISTS playlists (
     followers_count INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS artists_tracks (
-    artist_id VARCHAR(80) REFERENCES artists(id),
+CREATE TABLE IF NOT EXISTS track_artists (
     track_id VARCHAR(80) REFERENCES tracks(id),
-    PRIMARY KEY (artist_id, track_id)
+    artist_id VARCHAR(80) REFERENCES artists(id),
+    PRIMARY KEY (track_id, artist_id)
 );
 
-CREATE TABLE IF NOT EXISTS playlists_tracks (
+CREATE TABLE IF NOT EXISTS playlist_tracks (
     playlist_id VARCHAR(80) REFERENCES playlists(id),
     track_id VARCHAR(80) REFERENCES tracks(id),
     PRIMARY KEY (playlist_id, track_id)
@@ -49,71 +50,82 @@ CREATE TABLE IF NOT EXISTS playlists_tracks (
 """
 
 DROP_TABLES = """
-DROP TABLE artists_tracks;
-DROP TABLE playlists_tracks;
-DROP TABLE playlists;
-DROP TABLE artists;
-DROP TABLE tracks;
+DROP TABLE track_artists;
+DROP TABLE playlist_tracks;
+DROP TABLE playlists CASCADE;
+DROP TABLE artists CASCADE;
+DROP TABLE tracks CASCADE;
 """
 
 
-def create_tables(conn):
+def create_tables(conn) -> None:
     with conn.cursor() as cur:
         cur.execute(CREATE_TABLES)
     conn.commit()
 
 
-def reset_database(conn):
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+def reset_database(conn) -> None:
+    with conn.cursor() as cur:
         cur.execute(DROP_TABLES)
         cur.execute(CREATE_TABLES)
     conn.commit()
 
 
-def insert_or_update_artist(conn, artist):
-    with conn.cursor() as cur:
+def remove_playlist_tracks(conn, playlist_id: str, track_ids: list[str]) -> None:
+    with conn.cursor(cursor_factory=DictCursor) as cur:
         cur.execute(
             """
-            INSERT INTO artists (id, name, thumbnail, popularity)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (id) DO NOTHING
+            DELETE FROM playlist_tracks
+            WHERE playlist_id = %s
+            AND track_id = ANY(%s)
         """,
-            (artist["id"], artist["name"], artist["thumbnail"], artist["popularity"]),
+            (playlist_id, track_ids),
         )
     conn.commit()
 
 
-def insert_or_update_track(conn, track):
+def insert_playlist_tracks(conn, playlist_id: str, track_ids: list[str]) -> None:
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO tracks (id, name, thumbnail, preview_url, popularity, danceability, energy, loudness, speechiness, acousticness, instrumentalness, liveness, valence, tempo, mode, duration_ms)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (id) DO NOTHING
-        """,
-            (
-                track["id"],
-                track["name"],
-                track["thumbnail"],
-                track["preview_url"],
-                track["popularity"],
-                track["danceability"],
-                track["energy"],
-                track["loudness"],
-                track["speechiness"],
-                track["acousticness"],
-                track["instrumentalness"],
-                track["liveness"],
-                track["valence"],
-                track["tempo"],
-                track["mode"],
-                track["duration_ms"],
-            ),
-        )
+        insert_query = """
+        INSERT INTO playlist_tracks (playlist_id, track_id)
+        VALUES %s
+        """
+        data = [(playlist_id, track_id) for track_id in track_ids]
+        execute_values(cur, insert_query, data)
     conn.commit()
 
 
-def insert_or_update_playlist(conn, playlist):
+def insert_track_artists(conn, track_artist_data: list[tuple[str, str]]) -> None:
+    with conn.cursor() as cur:
+        insert_query = """
+        INSERT INTO track_artists (track_id, artist_id)
+        VALUES %s
+        """
+        execute_values(cur, insert_query, track_artist_data)
+    conn.commit()
+
+
+def insert_or_update_tracks(conn, tracks_data: list[tuple]) -> None:
+    with conn.cursor() as cur:
+        insert_query = """
+        INSERT INTO tracks (id, name, thumbnail, preview_url, popularity, danceability, energy, loudness, speechiness, acousticness, instrumentalness, liveness, valence, tempo, mode, duration_ms)
+        VALUES %s
+        """
+        execute_values(cur, insert_query, tracks_data)
+    conn.commit()
+
+
+def insert_or_update_artists(conn, artists_data: list[tuple]) -> None:
+    with conn.cursor() as cur:
+        insert_query = """
+        INSERT INTO artists (id, name, thumbnail, popularity, genres)
+        VALUES %s
+        """
+        execute_values(cur, insert_query, artists_data)
+    conn.commit()
+
+
+def insert_or_update_playlist(conn, playlist: dict) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -136,45 +148,40 @@ def insert_or_update_playlist(conn, playlist):
     conn.commit()
 
 
-def insert_artist_track(conn, artist_id, track_id):
-    with conn.cursor() as cur:
+def get_playlist_tracks(conn, playlist_id: str) -> list[str]:
+    with conn.cursor(cursor_factory=DictCursor) as cur:
         cur.execute(
             """
-            INSERT INTO artists_tracks (artist_id, track_id)
-            VALUES (%s, %s)
-            ON CONFLICT DO NOTHING
+            SELECT track_id 
+            FROM playlist_tracks 
+            WHERE playlist_id = %s
         """,
-            (artist_id, track_id),
+            (playlist_id,),
         )
-    conn.commit()
+        return [row[0] for row in cur.fetchall()]
 
 
-def insert_playlist_track(conn, playlist_id, track_id):
-    with conn.cursor() as cur:
+def get_existing_track_ids(conn, track_ids: list[str]) -> list[str]:
+    with conn.cursor(cursor_factory=DictCursor) as cur:
         cur.execute(
             """
-            INSERT INTO playlists_tracks (playlist_id, track_id)
-            VALUES (%s, %s)
-            ON CONFLICT DO NOTHING
+            SELECT id
+            FROM tracks
+            WHERE id = ANY(%s)
         """,
-            (playlist_id, track_id),
+            (track_ids,),
         )
-    conn.commit()
+        return [row[0] for row in cur.fetchall()]
 
 
-def get_all_playlists(conn):
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("SELECT * FROM playlists")
-        return cur.fetchall()
-
-
-def get_all_tracks(conn):
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("SELECT * FROM tracks")
-        return cur.fetchall()
-
-
-def get_all_artists(conn):
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("SELECT * FROM artists")
-        return cur.fetchall()
+def get_existing_artist_ids(conn, artist_ids: list[str]) -> list[str]:
+    with conn.cursor(cursor_factory=DictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id
+            FROM artists
+            WHERE id = ANY(%s)
+        """,
+            (artist_ids,),
+        )
+        return [row[0] for row in cur.fetchall()]
