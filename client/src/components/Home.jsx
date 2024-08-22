@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import FeatureCard from "./FeatureCard";
-import { Search, Moon, Sun, BarChart, Music, Lightbulb } from "lucide-react";
+import { Search, Moon, Sun } from "lucide-react";
 
 const Home = () => {
   const navigate = useNavigate();

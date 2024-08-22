@@ -3,9 +3,25 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { BarChart, Music, Lightbulb, Moon, Sun, Home } from "lucide-react";
 import AnalysisOption from "./AnalysisOption";
 
+const decodeText = (text) => {
+  const tempElement = document.createElement("textarea");
+  tempElement.innerHTML = text;
+  return tempElement.value;
+};
+
 const Analysis = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [playlist, setPlaylist] = useState({
+    title: "",
+    description: "",
+    followerCount: "",
+    trackCount: "",
+    imageUrl: "",
+    duration: "",
+    topGenres: [{ name: "" }],
+    topArtists: [{ name: "" }],
+  });
   const [darkMode, setDarkMode] = useState(() => {
     const savedMode = localStorage.getItem("darkMode");
     return savedMode ? JSON.parse(savedMode) : false;
@@ -24,17 +40,31 @@ const Analysis = () => {
     setDarkMode((prevMode) => !prevMode);
   };
 
-  // Placeholder data - replace with actual API calls
-  const playlistData = {
-    name: "Awesome Playlist",
-    description: "A collection of my favorite tracks",
-    trackCount: 50,
-    followerCount: 1000,
-    imageUrl: "https://picsum.photos/400",
-    topArtist: "The Beatles",
-    topGenre: "Rock",
-    duration: "3h 25m",
-    placeholder: "One More",
+  useEffect(() => {
+    const fetchPlaylist = async () => {
+      const options = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id: id }),
+      };
+      const response = await fetch(`http://127.0.0.1:5000/playlist`, options);
+      const response_body = await response.json();
+      if (!response.ok) {
+        alert(response_body.message);
+      } else {
+        setPlaylist(response_body.data);
+      }
+    };
+
+    fetchPlaylist();
+  }, [id]);
+
+  const parseDuration = (duration) => {
+    const minutes = Math.floor(duration / 60) % 60;
+    const hours = Math.floor(duration / 3600);
+    return `${hours}h ${minutes}m`;
   };
 
   return (
@@ -62,24 +92,29 @@ const Analysis = () => {
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-4xl w-full transition-colors duration-300">
         <div className="flex flex-col md:flex-row gap-8">
           <img
-            src={playlistData.imageUrl}
+            src={playlist.imageUrl}
             alt="Playlist Cover"
             className="w-64 h-64 object-cover rounded-lg shadow-md"
           />
           <div className="flex flex-col justify-center">
             <h2 className="text-3xl font-bold text-emerald-800 dark:text-emerald-300 mb-2 transition-colors duration-300">
-              {playlistData.name}
+              {decodeText(playlist.title)}
             </h2>
             <p className="text-emerald-600 dark:text-emerald-400 mb-4 transition-colors duration-300">
-              {playlistData.description}
+              {decodeText(playlist.description)}
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <InfoItem label="Tracks" value={playlistData.trackCount} />
-              <InfoItem label="Followers" value={playlistData.followerCount} />
-              <InfoItem label="Duration" value={playlistData.duration} />
-              <InfoItem label="Top Artist" value={playlistData.topArtist} />
-              <InfoItem label="Top Genre" value={playlistData.topGenre} />
-              <InfoItem label="Placeholder" value={playlistData.placeholder} />
+              <InfoItem label="Tracks" value={playlist.trackCount} />
+              <InfoItem label="Followers" value={playlist.followerCount} />
+              <InfoItem
+                label="Duration"
+                value={parseDuration(playlist.duration)}
+              />
+              <InfoItem
+                label="Top Artist"
+                value={playlist.topArtists[0].name}
+              />
+              <InfoItem label="Top Genre" value={playlist.topGenres[0].name} />
             </div>
           </div>
         </div>
